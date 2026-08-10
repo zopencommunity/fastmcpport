@@ -1,0 +1,171 @@
+# bump: fastmcp-version /FASTMCP_VERSION="(.*)"/ https://github.com/jlowin/fastmcp.git|semver:*
+FASTMCP_VERSION="2.0.0"
+
+###
+### Build control file for the python-fastmcpport port
+###
+### fastmcp is pure Python.  Its non-pure transitive dependencies are:
+###   pydantic-core (Rust) — via pydantic, handled by python-pydantic-coreport
+###   rpds-py        (Rust) — via referencing -> jsonschema -> mcp
+###
+### Both Rust deps are handled by their own ports.
+###
+### mcp is pinned to 1.9.4 because mcp >= 1.10 requires pyjwt[crypto] which
+### pulls in the cryptography package (also Rust).  If cryptography is ported
+### later, this pin can be relaxed.
+###
+
+export ZOPEN_PROJECT_NAME="python-fastmcp"
+export ZOPEN_BUILD_LINE="STABLE"
+export ZOPEN_STABLE_URL="https://github.com/jlowin/fastmcp.git"
+export ZOPEN_STABLE_TAG="v${FASTMCP_VERSION}"
+export ZOPEN_STABLE_DEPS="check_python grep curl"
+export ZOPEN_DEV_URL=""
+export ZOPEN_DEV_DEPS="check_python grep curl"
+export ZOPEN_CATEGORIES="networking development"
+export ZOPEN_RUNTIME_DEPS="check_python python-pydantic-core python-rpds-py"
+
+export ZOPEN_BUILD_SYSTEM="Python"
+export ZOPEN_COMP="skip"
+
+zopen_get_version() {
+  echo "${FASTMCP_VERSION}"
+}
+
+### Pure-Python closure for fastmcp 2.0.0 + mcp 1.9.4 (no cryptography):
+###   fastapi, starlette, pydantic, pydantic-settings, anyio, sniffio, idna,
+###   typing-extensions, annotated-types, typing-inspection,
+###   mcp==1.9.4, httpx, httpx-sse, python-multipart, sse-starlette,
+###   uvicorn, h11, websockets, openapi-pydantic, rich, typer, dotenv,
+###   referencing, jsonschema, jsonschema-specifications, rpds-py,
+###   attrs, python-dotenv, certifi, httpcore
+###
+### pydantic-core and rpds-py are excluded from the bundle (separate ports).
+_FASTMCP_PURE_DEPS="
+  fastapi
+  starlette
+  anyio sniffio idna
+  pydantic pydantic-settings
+  annotated-types typing-inspection
+  httpx httpx-sse httpcore h11 certifi
+  python-multipart sse-starlette
+  uvicorn websockets
+  openapi-pydantic
+  rich typer
+  dotenv python-dotenv
+  referencing jsonschema jsonschema-specifications attrs
+  mcp==1.9.4
+"
+
+zopen_python_test() {
+  pip install --disable-pip-version-check --no-warn-script-location \
+    --extra-index-url https://repo.zopen.community/pypi/wheels/simple/ \
+    --only-binary pydantic-core,rpds-py \
+    ${_FASTMCP_PURE_DEPS} \
+    || return 1
+
+  python - <<'PYEOF'
+import sys, asyncio
+failures = 0
+
+def check(label, expr):
+    global failures
+    if not expr:
+        print("FAIL:", label, file=sys.stderr)
+        failures += 1
+    else:
+        print("PASS:", label)
+
+try:
+    import fastmcp
+    from fastmcp import FastMCP
+    from pydantic import BaseModel
+except ImportError as exc:
+    print("FAIL: import -", exc, file=sys.stderr)
+    sys.exit(1)
+
+# Create server and register tools
+mcp = FastMCP("z/OS test server")
+
+@mcp.tool()
+def add(a: int, b: int) -> int:
+    """Add two integers"""
+    return a + b
+
+@mcp.tool()
+def greet(name: str) -> str:
+    """Greet someone"""
+    return "Hello " + name + " from z/OS!"
+
+class Point(BaseModel):
+    x: float
+    y: float
+
+@mcp.tool()
+def distance(p: Point) -> float:
+    """Euclidean distance from origin"""
+    return (p.x ** 2 + p.y ** 2) ** 0.5
+
+async def run():
+    tm = mcp._tool_manager
+
+    check("tool count", len(tm._tools) == 3)
+    check("tool names", set(tm._tools.keys()) == {"add", "greet", "distance"})
+
+    r = await tm.call_tool("add",   {"a": 21, "b": 21})
+    check("add result",   r == 42)
+
+    r = await tm.call_tool("greet", {"name": "World"})
+    check("greet result", r == "Hello World from z/OS!")
+
+    r = await tm.call_tool("distance", {"p": {"x": 3.0, "y": 4.0}})
+    check("distance result", abs(r - 5.0) < 1e-9)
+
+asyncio.run(run())
+
+print()
+print("fastmcp", fastmcp.__version__,
+      "on Python", sys.version.split()[0],
+      "- %d passed, %d failed" % (5 - failures, failures))
+sys.exit(failures)
+PYEOF
+}
+
+zopen_post_install() {
+  pip install --disable-pip-version-check --no-warn-script-location \
+    --no-deps \
+    --target "${ZOPEN_INSTALL_DIR}/lib/python" \
+    --extra-index-url https://repo.zopen.community/pypi/wheels/simple/ \
+    --only-binary pydantic-core,rpds-py \
+    ${_FASTMCP_PURE_DEPS} \
+    || return 1
+}
+
+zopen_check_results() {
+  dir="$1"; pfx="$2"; chk="${dir}/${pfx}_check.log"
+  passed=$(grep -c "^PASS:" "${chk}" 2>/dev/null || echo 0)
+  failed=$(grep -c "^FAIL:" "${chk}" 2>/dev/null || echo 0)
+  interpreters=$(grep -c "Running tests with Python" "${chk}" 2>/dev/null || echo 0)
+  interpreters_with_output=$(grep -c "fastmcp.*passed" "${chk}" 2>/dev/null || echo 0)
+  silent=$((interpreters - interpreters_with_output))
+  if [ "${silent}" -gt 0 ]; then
+    failed=$((failed + silent))
+  fi
+  total=$((passed + failed))
+  echo "actualFailures:${failed}"
+  echo "totalTests:${total}"
+  echo "expectedFailures:0"
+}
+
+zopen_append_to_env() {
+  cat <<'EOF'
+PYTHONPATH="${PYTHONPATH}:${PWD}/lib/python"
+export PYTHONPATH="$(deleteDuplicateEntries "$PYTHONPATH" ":")"
+EOF
+}
+
+zopen_append_to_validate_install() {
+  cat <<'EOF'
+python3 -c "import fastmcp; print('fastmcp', fastmcp.__version__)"
+EOF
+}
