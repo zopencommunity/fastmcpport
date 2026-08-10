@@ -2,10 +2,10 @@
 FASTMCP_VERSION="2.0.0"
 
 ###
-### Build control file for the python-fastmcpport port
+### Build control file for the fastmcpport port
 ###
 ### fastmcp is pure Python.  Its non-pure transitive dependencies are:
-###   pydantic-core (Rust) — via pydantic, handled by python-pydantic-coreport
+###   pydantic-core (Rust) — via pydantic, handled by pydantic-coreport
 ###   rpds-py        (Rust) — via referencing -> jsonschema -> mcp
 ###
 ### Both Rust deps are handled by their own ports.
@@ -15,7 +15,7 @@ FASTMCP_VERSION="2.0.0"
 ### later, this pin can be relaxed.
 ###
 
-export ZOPEN_PROJECT_NAME="python-fastmcp"
+export ZOPEN_PROJECT_NAME="fastmcp"
 export ZOPEN_BUILD_LINE="STABLE"
 export ZOPEN_STABLE_URL="https://github.com/jlowin/fastmcp.git"
 export ZOPEN_STABLE_TAG="v${FASTMCP_VERSION}"
@@ -23,7 +23,7 @@ export ZOPEN_STABLE_DEPS="check_python grep curl"
 export ZOPEN_DEV_URL=""
 export ZOPEN_DEV_DEPS="check_python grep curl"
 export ZOPEN_CATEGORIES="networking development"
-export ZOPEN_RUNTIME_DEPS="check_python python-pydantic-core python-rpds-py"
+export ZOPEN_RUNTIME_DEPS="check_python pydantic-core rpds-py"
 
 export ZOPEN_BUILD_SYSTEM="Python"
 export ZOPEN_COMP="skip"
