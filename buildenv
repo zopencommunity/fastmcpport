@@ -143,10 +143,21 @@ zopen_post_install() {
 
 zopen_check_results() {
   dir="$1"; pfx="$2"; chk="${dir}/${pfx}_check.log"
-  passed=$(grep -c "^PASS:" "${chk}" 2>/dev/null || echo 0)
-  failed=$(grep -c "^FAIL:" "${chk}" 2>/dev/null || echo 0)
-  interpreters=$(grep -c "Running tests with Python" "${chk}" 2>/dev/null || echo 0)
-  interpreters_with_output=$(grep -c "fastmcp.*passed" "${chk}" 2>/dev/null || echo 0)
+  # No "|| echo 0" on any of these: grep -c already prints 0 when nothing
+  # matches, and it also exits 1 while doing so, so the fallback appended a
+  # second zero and every $(( )) below died with FSUM9224 bad number "0\n0".
+  # That fired on each clean run, because a clean run has no FAIL: lines. This
+  # is not a z/OS grep limitation -- GNU grep behaves identically -- so adding
+  # grep as a dependency would not have helped. ${x:-0} still covers a missing
+  # log, where grep writes nothing to stdout.
+  passed=$(grep -c "^PASS:" "${chk}" 2>/dev/null)
+  failed=$(grep -c "^FAIL:" "${chk}" 2>/dev/null)
+  interpreters=$(grep -c "Running tests with Python" "${chk}" 2>/dev/null)
+  interpreters_with_output=$(grep -c "fastmcp.*passed" "${chk}" 2>/dev/null)
+  passed=${passed:-0}
+  failed=${failed:-0}
+  interpreters=${interpreters:-0}
+  interpreters_with_output=${interpreters_with_output:-0}
   silent=$((interpreters - interpreters_with_output))
   if [ "${silent}" -gt 0 ]; then
     failed=$((failed + silent))
