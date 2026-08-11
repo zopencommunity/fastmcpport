@@ -33,6 +33,18 @@ export ZOPEN_DEV_DEPS="check_python grep curl"
 export ZOPEN_CATEGORIES="networking development"
 export ZOPEN_RUNTIME_DEPS="check_python pydantic-core rpds-py"
 
+# zopen-build defaults to building and testing on 3.12, 3.13 and 3.14. This
+# port cannot: pydantic-core and rpds-py are published for cp312 only,
+# because a Rust extension is compiled against one CPython ABI and there is no
+# abi3 build, so one .so cannot serve several interpreters. On 3.13 pip finds
+# no usable candidate on the zopen index, falls back to PyPI, and reports
+#   Could not find a version that satisfies the requirement pydantic-core==...
+#   (from versions: 0.0.1)
+# where 0.0.1 is an ancient universal placeholder wheel and the only
+# z/OS-compatible thing PyPI offers. Pin to the interpreters the dependency
+# chain actually supports, and widen this when cp313/cp314 wheels are published.
+export ZOPEN_PYTHON_VERSIONS="3.12"
+
 export ZOPEN_BUILD_SYSTEM="Python"
 export ZOPEN_COMP="skip"
 
