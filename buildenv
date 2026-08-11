@@ -1,6 +1,14 @@
 # bump: fastmcp-version /FASTMCP_VERSION="(.*)"/ https://github.com/jlowin/fastmcp.git|semver:*
 FASTMCP_VERSION="2.0.0"
 
+# pydantic pins pydantic-core exactly and enforces it at import:
+#   SystemError: The installed pydantic-core version (2.41.5) is incompatible
+#   with the current pydantic version, which requires 2.46.4
+# so pydantic must match the pydantic-core port. 2.12.5 pins 2.41.5, and it
+# satisfies mcp 1.9.4's pydantic<3.0.0,>=2.7.2. Bump this whenever the
+# pydantic-core port moves.
+PYDANTIC_VERSION="2.12.5"
+
 ###
 ### Build control file for the fastmcpport port
 ###
@@ -45,8 +53,8 @@ _FASTMCP_PURE_DEPS="
   fastapi
   starlette
   anyio sniffio idna
-  pydantic pydantic-settings
-  annotated-types typing-inspection
+  pydantic==${PYDANTIC_VERSION} pydantic-settings
+  annotated-types typing-inspection typing-extensions
   httpx httpx-sse httpcore h11 certifi
   python-multipart sse-starlette
   uvicorn websockets
