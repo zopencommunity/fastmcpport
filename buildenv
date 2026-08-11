@@ -1,5 +1,5 @@
 # bump: fastmcp-version /FASTMCP_VERSION="(.*)"/ https://github.com/jlowin/fastmcp.git|semver:*
-FASTMCP_VERSION="2.0.0"
+FASTMCP_VERSION="3.4.7"
 
 # pydantic pins pydantic-core exactly and enforces it at import:
 #   SystemError: The installed pydantic-core version (2.41.5) is incompatible
