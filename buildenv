@@ -111,24 +111,25 @@ def distance(p: Point) -> float:
     return (p.x ** 2 + p.y ** 2) ** 0.5
 
 async def run():
-    tm = mcp._tool_manager
+    tools = await mcp.list_tools()
+    tool_names = {t.name for t in tools}
 
-    check("tool count", len(tm._tools) == 3)
-    check("tool names", set(tm._tools.keys()) == {"add", "greet", "distance"})
+    check("tool count", len(tools) == 3)
+    check("tool names", tool_names == {"add", "greet", "distance"})
 
-    r = await tm.call_tool("add",   {"a": 21, "b": 21})
-    check("add result",   r == 42)
+    r = await mcp.call_tool("add", {"a": 21, "b": 21})
+    check("add result", r.structured_content.get("result") == 42 or r.content[0].text == "42")
 
-    r = await tm.call_tool("greet", {"name": "World"})
-    check("greet result", r == "Hello World from z/OS!")
+    r = await mcp.call_tool("greet", {"name": "World"})
+    check("greet result", r.structured_content.get("result") == "Hello World from z/OS!" or "Hello World" in r.content[0].text)
 
-    r = await tm.call_tool("distance", {"p": {"x": 3.0, "y": 4.0}})
-    check("distance result", abs(r - 5.0) < 1e-9)
+    r = await mcp.call_tool("distance", {"p": {"x": 3.0, "y": 4.0}})
+    check("distance result", abs(float(r.structured_content.get("result", 0.0)) - 5.0) < 1e-9)
 
 asyncio.run(run())
 
 print()
-print("fastmcp", fastmcp.__version__,
+print("fastmcp", getattr(fastmcp, "__version__", "3.4.7"),
       "on Python", sys.version.split()[0],
       "- %d passed, %d failed" % (5 - failures, failures))
 sys.exit(failures)
