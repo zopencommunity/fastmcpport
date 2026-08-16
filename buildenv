@@ -1,13 +1,7 @@
 # bump: fastmcp-version /FASTMCP_VERSION="(.*)"/ https://github.com/jlowin/fastmcp.git|semver:*
-FASTMCP_VERSION="2.0.0"
+FASTMCP_VERSION="3.4.7"
 
-# pydantic pins pydantic-core exactly and enforces it at import:
-#   SystemError: The installed pydantic-core version (2.41.5) is incompatible
-#   with the current pydantic version, which requires 2.46.4
-# so pydantic must match the pydantic-core port. 2.12.5 pins 2.41.5, and it
-# satisfies mcp 1.9.4's pydantic<3.0.0,>=2.7.2. Bump this whenever the
-# pydantic-core port moves.
-PYDANTIC_VERSION="2.12.5"
+PYDANTIC_VERSION="2.13.4"
 
 ###
 ### Build control file for the fastmcpport port
@@ -31,19 +25,9 @@ export ZOPEN_STABLE_DEPS="check_python grep curl"
 export ZOPEN_DEV_URL=""
 export ZOPEN_DEV_DEPS="check_python grep curl"
 export ZOPEN_CATEGORIES="networking development"
-export ZOPEN_RUNTIME_DEPS="check_python pydantic-core rpds-py"
+export ZOPEN_RUNTIME_DEPS="check_python pydantic-core rpds-py cryptography watchfiles"
 
-# zopen-build defaults to building and testing on 3.12, 3.13 and 3.14. This
-# port cannot: pydantic-core and rpds-py are published for cp312 only,
-# because a Rust extension is compiled against one CPython ABI and there is no
-# abi3 build, so one .so cannot serve several interpreters. On 3.13 pip finds
-# no usable candidate on the zopen index, falls back to PyPI, and reports
-#   Could not find a version that satisfies the requirement pydantic-core==...
-#   (from versions: 0.0.1)
-# where 0.0.1 is an ancient universal placeholder wheel and the only
-# z/OS-compatible thing PyPI offers. Pin to the interpreters the dependency
-# chain actually supports, and widen this when cp313/cp314 wheels are published.
-export ZOPEN_PYTHON_VERSIONS="3.12"
+export ZOPEN_PYTHON_VERSIONS="3.12 3.13 3.14"
 
 export ZOPEN_BUILD_SYSTEM="Python"
 export ZOPEN_COMP="skip"
