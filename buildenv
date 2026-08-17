@@ -1,20 +1,50 @@
 # bump: fastmcp-version /FASTMCP_VERSION="(.*)"/ https://github.com/jlowin/fastmcp.git|semver:*
 FASTMCP_VERSION="3.4.7"
 
-PYDANTIC_VERSION="2.13.4"
-
 ###
-### Build control file for the fastmcpport port
+### Build control file for the fastmcp port
 ###
-### fastmcp is pure Python.  Its non-pure transitive dependencies are:
-###   pydantic-core (Rust) — via pydantic, handled by pydantic-coreport
-###   rpds-py        (Rust) — via referencing -> jsonschema -> mcp
+### From 3.0 fastmcp is a metapackage. The code moved to fastmcp-slim, and the
+### wheel this port builds is deliberately empty -- upstream's pyproject sets
+### only-include = [], so their wheel and ours both carry a dist-info and
+### nothing else. What the wheel does carry is a dependency on fastmcp-slim,
+### and installing that is what puts the fastmcp module on the path.
 ###
-### Both Rust deps are handled by their own ports.
+### So there is nothing to compile here and nothing z/OS-specific in fastmcp
+### itself. fastmcp-slim is pure Python and needs no port of its own. What this
+### port really proves is that the closure underneath it resolves and works on
+### z/OS: 65 distributions, of which these are compiled and come from their own
+### ports --
 ###
-### mcp is pinned to 1.9.4 because mcp >= 1.10 requires pyjwt[crypto] which
-### pulls in the cryptography package (also Rust).  If cryptography is ported
-### later, this pin can be relaxed.
+###   pydantic-core (Rust), rpds-py (Rust), watchfiles (Rust),
+###   cryptography (Rust), PyYAML (C)
+###
+### -- and one, cffi, which does not.
+###
+### cffi is pulled in by cryptography, which needs _cffi_backend at import time
+### even though its own bindings are Rust. cffi cannot be built here: it needs
+### libffi, and upstream libffi has no z/OS backend. Its configure.host knows
+### s390-*-* only, which is Linux on Z and the wrong ABI, so a z/OS libffi means
+### writing XPLINK call and closure trampolines in assembly. libffiport exists
+### but is a 2024 skeleton that has never released, and the i370 patch it
+### carries points at src/z files that are not in upstream or in the port.
+###
+### IBM's Open Enterprise Python ships a working cffi with every interpreter
+### this port builds for (1.17.1 on 3.12, 2.0.0 on 3.13 and 3.14), all of which
+### satisfy cryptography's cffi>=1.12, so ZOPEN_PYTHON_VENV_SYSTEM_SITE lets
+### that one come from the interpreter instead of failing the build.
+###
+### cryptographyport reached the same conclusion first and says so at length;
+### it predates ZOPEN_PYTHON_VENV_SYSTEM_SITE and hand-rolls the same venv. The
+### consequence both ports inherit is that a clean venv with no system packages
+### cannot install either of them. That is not an oversight to fix here -- it
+### holds until libffi has a z/OS backend.
+###
+### It is still a real compromise. Letting the interpreter satisfy requirements
+### also lets it satisfy them with something old -- 3.12 bundles cryptography
+### 3.3.2 -- so the pip invocation names the compiled dependencies explicitly
+### with --upgrade, and the check asserts each one sits at a version the zopen
+### index actually publishes, which a bundled copy does not.
 ###
 
 export ZOPEN_PROJECT_NAME="fastmcp"
@@ -25,60 +55,101 @@ export ZOPEN_STABLE_DEPS="check_python grep curl"
 export ZOPEN_DEV_URL=""
 export ZOPEN_DEV_DEPS="check_python grep curl"
 export ZOPEN_CATEGORIES="networking development"
-export ZOPEN_RUNTIME_DEPS="check_python pydantic-core rpds-py cryptography watchfiles"
+export ZOPEN_RUNTIME_DEPS="check_python pydantic-core rpds-py cryptography watchfiles pyyaml"
 
 export ZOPEN_PYTHON_VERSIONS="3.12 3.13 3.14"
 
 export ZOPEN_BUILD_SYSTEM="Python"
 export ZOPEN_COMP="skip"
 
+# For cffi, and only for cffi. See the note above.
+export ZOPEN_PYTHON_VENV_SYSTEM_SITE="true"
+
+# What the metapackage exists to pull in.
+#
+# This is one variable rather than a hand-written copy of the dependency tree.
+# The port used to carry the whole closure inline, which is how it came to still
+# name mcp==1.9.4 two majors after that stopped being true, and how it came to
+# list no fastmcp-slim at all -- so the check installed 2.0.0's dependencies and
+# then failed to import fastmcp. zopen_python_test asserts this string against
+# the built wheel's own Requires-Dist, so a bump that reshuffles upstream's
+# packaging fails the build instead of silently testing the wrong tree.
+FASTMCP_REQUIREMENT="fastmcp-slim[client,server]==${FASTMCP_VERSION}"
+
+# Never let pip fall back to building these from an sdist on z/OS. Each has its
+# own port; a missing wheel should be a loud failure here, not a compile that
+# either fails obscurely or succeeds into an untested binary.
+FASTMCP_ONLY_BINARY="cryptography,pydantic-core,pyyaml,rpds-py,watchfiles"
+
+# The same set, named on the pip command line so --upgrade applies to them.
+#
+# ZOPEN_PYTHON_VENV_SYSTEM_SITE means the interpreter's own packages satisfy
+# requirements too, and 3.12 bundles cryptography 3.3.2. pip counted that as
+# satisfying the requirement and never installed ours, so the check ran against
+# a copy from 2021 rather than the 50.0.0 this ecosystem builds -- and passed.
+# Naming these explicitly with --upgrade is what stops a bundled package from
+# standing in for a ported one.
+FASTMCP_FROM_INDEX="cryptography pydantic-core pyyaml rpds-py watchfiles"
+
 zopen_get_version() {
   echo "${FASTMCP_VERSION}"
 }
 
-### Pure-Python closure for fastmcp 2.0.0 + mcp 1.9.4 (no cryptography):
-###   fastapi, starlette, pydantic, pydantic-settings, anyio, sniffio, idna,
-###   typing-extensions, annotated-types, typing-inspection,
-###   mcp==1.9.4, httpx, httpx-sse, python-multipart, sse-starlette,
-###   uvicorn, h11, websockets, openapi-pydantic, rich, typer, dotenv,
-###   referencing, jsonschema, jsonschema-specifications, rpds-py,
-###   attrs, python-dotenv, certifi, httpcore
-###
-### pydantic-core and rpds-py are excluded from the bundle (separate ports).
-_FASTMCP_PURE_DEPS="
-  fastapi
-  starlette
-  anyio sniffio idna
-  pydantic==${PYDANTIC_VERSION} pydantic-settings
-  annotated-types typing-inspection typing-extensions
-  httpx httpx-sse httpcore h11 certifi
-  python-multipart sse-starlette
-  uvicorn websockets
-  openapi-pydantic
-  rich typer
-  dotenv python-dotenv
-  referencing jsonschema jsonschema-specifications attrs
-  mcp==1.9.4
-"
-
 zopen_python_test() {
+  # zopen-build has installed the wheel this port built with --no-deps, which
+  # for a metapackage leaves a fastmcp dist-info and no fastmcp module at all.
+  # Check the wheel says what we think before pulling its dependency in.
+  FASTMCP_REQUIREMENT="${FASTMCP_REQUIREMENT}" python - <<'PYEOF' || return 1
+import importlib.metadata as m
+import os
+import sys
+
+expected = os.environ["FASTMCP_REQUIREMENT"]
+# Requirements guarded by "extra ==" belong to extras nobody asked for.
+base = [r for r in (m.requires("fastmcp") or []) if "extra ==" not in r]
+if base != [expected]:
+    print("FAIL: built wheel requires %r, this port expects [%r]" % (base, expected),
+          file=sys.stderr)
+    sys.exit(1)
+print("PASS: the built wheel requires exactly", expected)
+PYEOF
+
   pip install --disable-pip-version-check --no-warn-script-location \
+    --upgrade \
     --extra-index-url https://repo.zopen.community/pypi/wheels/simple/ \
-    --only-binary pydantic-core,rpds-py \
-    ${_FASTMCP_PURE_DEPS} \
+    --only-binary "${FASTMCP_ONLY_BINARY}" \
+    ${FASTMCP_FROM_INDEX} \
+    "${FASTMCP_REQUIREMENT}" \
     || return 1
 
-  python - <<'PYEOF'
-import sys, asyncio
-failures = 0
+  FASTMCP_EXPECTED_VERSION="${FASTMCP_VERSION}" \
+  FASTMCP_FROM_INDEX="${FASTMCP_FROM_INDEX}" python - <<'PYEOF'
+import asyncio
+import importlib
+import importlib.metadata as m
+import os
+import re
+import sys
 
-def check(label, expr):
-    global failures
-    if not expr:
+failures = 0
+total = 0
+
+
+def check(label, fn):
+    global failures, total
+    total += 1
+    try:
+        ok = fn()
+    except Exception as exc:
+        print("FAIL:", label, "-", exc, file=sys.stderr)
+        failures += 1
+        return
+    if ok:
+        print("PASS:", label)
+    else:
         print("FAIL:", label, file=sys.stderr)
         failures += 1
-    else:
-        print("PASS:", label)
+
 
 try:
     import fastmcp
@@ -86,64 +157,257 @@ try:
     from pydantic import BaseModel
 except ImportError as exc:
     print("FAIL: import -", exc, file=sys.stderr)
+    print("fastmcp FAILED to import on Python %s -- 0 passed, 1 failed"
+          % sys.version.split()[0])
     sys.exit(1)
 
-# Create server and register tools
+expected_version = os.environ["FASTMCP_EXPECTED_VERSION"]
+
+check("fastmcp reports the version this port builds",
+      lambda: fastmcp.__version__ == expected_version)
+
+# The two are tied together by an == requirement, so a mismatch means something
+# resolved around the pin.
+check("fastmcp-slim is the matching version",
+      lambda: m.version("fastmcp-slim") == expected_version)
+
+
+def code_comes_from_slim():
+    # The metapackage ships no code, so if fastmcp/ is not owned by fastmcp-slim
+    # the wheel under test is not the empty one this port is supposed to build.
+    files = m.distribution("fastmcp-slim").files or ()
+    return any(str(f).startswith("fastmcp/") for f in files)
+
+
+check("the fastmcp module is supplied by fastmcp-slim", code_comes_from_slim)
+
+
+def _normalise(name):
+    return re.sub(r"[-_.]+", "-", name or "").lower()
+
+
+def compiled_deps_come_from_the_index():
+    # ZOPEN_PYTHON_VENV_SYSTEM_SITE means the interpreter's own packages satisfy
+    # requirements too, and 3.12 bundles cryptography 3.3.2. pip counted that as
+    # satisfying the requirement and never installed the ported 50.0.0, so this
+    # suite passed against a copy from 2021.
+    #
+    # The invariant that catches that: every compiled dependency sits at a
+    # version the zopen index actually publishes, which is what makes it a
+    # ported wheel rather than whatever the interpreter happened to bundle.
+    #
+    # Two things that look like the same check and are not. Where the package
+    # sits on disk: pip legitimately leaves an already-current package in the
+    # interpreter instead of copying it into the venv, and a machine that has
+    # had ported wheels installed system-wide keeps most of them there. And
+    # "is it the newest available": PyPI carries sdists newer than anything
+    # ported here, so asking pip what is outdated fails on packages that are
+    # entirely correct.
+    import urllib.request
+
+    wrong = []
+    for name in os.environ["FASTMCP_FROM_INDEX"].split():
+        try:
+            installed = m.version(name)
+        except m.PackageNotFoundError:
+            continue
+        url = ("https://repo.zopen.community/pypi/wheels/simple/%s/"
+               % _normalise(name))
+        with urllib.request.urlopen(url, timeout=180) as response:
+            page = response.read().decode("utf-8", "replace")
+        published = set()
+        for filename in re.findall(r"[A-Za-z0-9_.+-]+\.whl", page):
+            parts = filename.split("-")
+            if len(parts) > 1:
+                published.add(parts[1])
+        if installed not in published:
+            wrong.append("%s is %s; the index publishes %s"
+                         % (name, installed, ", ".join(sorted(published)) or "nothing"))
+    for line in wrong:
+        print("      ", line, file=sys.stderr)
+    return not wrong
+
+
+check("every compiled dependency is a version the index publishes",
+      compiled_deps_come_from_the_index)
+
+
+def extension_imports(dist, module):
+    def fn():
+        try:
+            m.version(dist)
+        except m.PackageNotFoundError:
+            # Not in this interpreter's closure, so there is nothing to prove.
+            return True
+        importlib.import_module(module)
+        return True
+    return fn
+
+
+# The whole reason this port is more than a no-op: every compiled thing in the
+# closure has to load. An ImportError here is the failure users would hit.
+for _dist, _module in (("cffi", "_cffi_backend"),
+                       ("cryptography", "cryptography.hazmat.bindings._rust"),
+                       ("pydantic-core", "pydantic_core._pydantic_core"),
+                       ("rpds-py", "rpds"),
+                       ("watchfiles", "watchfiles._rust_notify"),
+                       ("PyYAML", "yaml._yaml")):
+    check("%s loads its extension" % _dist, extension_imports(_dist, _module))
+
+
+def cryptography_actually_works():
+    # cryptography is what drags cffi in, so exercise it rather than trusting
+    # that the import alone means the binding is sound.
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    key = AESGCM.generate_key(bit_length=256)
+    aes = AESGCM(key)
+    nonce = os.urandom(12)
+    if aes.decrypt(nonce, aes.encrypt(nonce, b"zopen", None), None) != b"zopen":
+        return False
+    digest = hashes.Hash(hashes.SHA256())
+    digest.update(b"zopen")
+    return len(digest.finalize()) == 32
+
+
+check("cryptography round trips AES-GCM and SHA-256", cryptography_actually_works)
+
 mcp = FastMCP("z/OS test server")
 
-@mcp.tool()
+
+@mcp.tool
 def add(a: int, b: int) -> int:
     """Add two integers"""
     return a + b
 
-@mcp.tool()
+
+@mcp.tool
 def greet(name: str) -> str:
     """Greet someone"""
     return "Hello " + name + " from z/OS!"
+
 
 class Point(BaseModel):
     x: float
     y: float
 
-@mcp.tool()
+
+@mcp.tool
 def distance(p: Point) -> float:
     """Euclidean distance from origin"""
     return (p.x ** 2 + p.y ** 2) ** 0.5
 
+
 async def run():
     tools = await mcp.list_tools()
-    tool_names = {t.name for t in tools}
+    names = {t.name for t in tools}
 
-    check("tool count", len(tools) == 3)
-    check("tool names", tool_names == {"add", "greet", "distance"})
+    check("tool count", lambda: len(tools) == 3)
+    check("tool names", lambda: names == {"add", "greet", "distance"})
 
     r = await mcp.call_tool("add", {"a": 21, "b": 21})
-    check("add result", r.structured_content.get("result") == 42 or r.content[0].text == "42")
+    check("add result",
+          lambda: r.structured_content.get("result") == 42
+          or r.content[0].text == "42")
 
     r = await mcp.call_tool("greet", {"name": "World"})
-    check("greet result", r.structured_content.get("result") == "Hello World from z/OS!" or "Hello World" in r.content[0].text)
+    check("greet result",
+          lambda: r.structured_content.get("result") == "Hello World from z/OS!"
+          or "Hello World" in r.content[0].text)
 
     r = await mcp.call_tool("distance", {"p": {"x": 3.0, "y": 4.0}})
-    check("distance result", abs(float(r.structured_content.get("result", 0.0)) - 5.0) < 1e-9)
+    check("distance result",
+          lambda: abs(float(r.structured_content.get("result", 0.0)) - 5.0) < 1e-9)
+
 
 asyncio.run(run())
 
 print()
-print("fastmcp", getattr(fastmcp, "__version__", "3.4.7"),
-      "on Python", sys.version.split()[0],
-      "- %d passed, %d failed" % (5 - failures, failures))
-sys.exit(failures)
+print("fastmcp %s on Python %s  --  %d passed, %d failed" % (
+    fastmcp.__version__, sys.version.split()[0], total - failures, failures))
+sys.exit(1 if failures else 0)
 PYEOF
 }
 
 zopen_post_install() {
+  # Bundle the runtime closure beside the empty metapackage so the installed
+  # port works without reaching an index.
+  #
+  # This resolves first and installs second, rather than doing both at once,
+  # because --target makes pip treat the destination as empty: the cffi that
+  # satisfied the whole check phase is ignored, pip goes looking for one to put
+  # in the target, finds only the sdist and tries to build it -- ending in
+  # "fatal error: 'ffi.h' file not found" after the build had otherwise passed.
+  #
+  # What is deliberately left out of the bundle:
+  #
+  #   cffi, and pycparser with it. There is no z/OS wheel to bundle, and the
+  #   interpreter that runs this tree is the one that supplies it.
+  #
+  #   Every compiled dependency, because this hook runs once under the primary
+  #   interpreter while the tree it fills is shared by all three. Bundling them
+  #   puts 3.12's extensions where 3.13 and 3.14 will find them first, and the
+  #   import fails with "No module named 'pydantic_core._pydantic_core'". Each
+  #   has its own port in ZOPEN_RUNTIME_DEPS which supplies the right build per
+  #   interpreter, so the bundle is left pure Python and works for all of them.
+  #
+  # --no-deps on the install is safe here precisely because the list is pip's
+  # own resolution rather than a hand-written closure -- the thing that rotted
+  # last time.
+  # --ignore-installed so the report is the whole closure. Without it the check
+  # phase has already installed everything into this venv, pip finds nothing
+  # left to do, and the report comes back with an empty install list.
+  _fm_report="${ZOPEN_INSTALL_DIR}/.fastmcp-resolution.json"
+  pip install --disable-pip-version-check --quiet --dry-run --ignore-installed \
+    --report "${_fm_report}" \
+    --extra-index-url https://repo.zopen.community/pypi/wheels/simple/ \
+    --only-binary "${FASTMCP_ONLY_BINARY}" \
+    ${FASTMCP_FROM_INDEX} \
+    "${FASTMCP_REQUIREMENT}" \
+    || return 1
+
+  _fm_packages=$(FASTMCP_REPORT="${_fm_report}" \
+                 FASTMCP_FROM_INDEX="${FASTMCP_FROM_INDEX}" python - <<'PYEOF'
+import json
+import os
+import re
+import sys
+
+
+def normalise(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+with open(os.environ["FASTMCP_REPORT"]) as handle:
+    report = json.load(handle)
+
+# cffi comes from the interpreter; the compiled dependencies come from their
+# own ports, which build one per interpreter rather than one for the primary.
+skip = {"cffi", "pycparser"}
+skip.update(normalise(n) for n in os.environ["FASTMCP_FROM_INDEX"].split())
+
+resolved = []
+for item in report.get("install", []):
+    meta = item["metadata"]
+    if normalise(meta["name"]) in skip:
+        continue
+    resolved.append("%s==%s" % (meta["name"], meta["version"]))
+
+if not resolved:
+    sys.exit("pip resolved nothing to bundle")
+print(" ".join(resolved))
+PYEOF
+  ) || return 1
+
   pip install --disable-pip-version-check --no-warn-script-location \
     --no-deps \
     --target "${ZOPEN_INSTALL_DIR}/lib/python" \
     --extra-index-url https://repo.zopen.community/pypi/wheels/simple/ \
-    --only-binary pydantic-core,rpds-py \
-    ${_FASTMCP_PURE_DEPS} \
+    --only-binary "${FASTMCP_ONLY_BINARY}" \
+    ${_fm_packages} \
     || return 1
+
+  rm -f "${_fm_report}"
 }
 
 zopen_check_results() {
