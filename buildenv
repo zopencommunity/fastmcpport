@@ -1,5 +1,5 @@
 # bump: fastmcp-version /FASTMCP_VERSION="(.*)"/ https://github.com/jlowin/fastmcp.git|semver:*
-FASTMCP_VERSION="4.0.1"
+FASTMCP_VERSION="4.0.2"
 
 ###
 ### Build control file for the fastmcp port
